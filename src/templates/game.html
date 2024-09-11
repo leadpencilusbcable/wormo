@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <link rel="stylesheet" href="../styles/index.css">
+        <script src="../scripts/index.js" defer></script>
+        <style>
+            .grid-container {
+                grid-template-columns: {{range loop .X}}1fr {{end}};
+                grid-template-rows: {{range loop .Y}}1fr {{end}};
+            }
+        </style>
+        <script>
+            const GRID_ROWS = {{.Y}};
+            const GRID_COLS = {{.X}};
+        </script>
+    </head>
+    <body>
+        <div class="ui-overlay">
+            <div style="display: flex;">
+                <p style="margin: 0;">Food needed to extend:</p>
+                &nbsp;
+                <p id="food-counter" style="margin: 0;">0</p>
+                /
+                <p id="food-needed" style="margin: 0;">6</p>
+            </div>
+            <div class="progress">
+                <div class="progress-inner"></div>
+            </div>
+        </div>
+        <div id="wormo-grid" class="grid-container">
+            {{range loop .TotalSize}}
+                <div class="grid-item"></div>
+            {{end}}
+        </div>
+    </body>
+</html>

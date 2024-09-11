@@ -3,8 +3,6 @@ const foodCounter = document.getElementById("food-counter");
 const foodNeeded = document.getElementById("food-needed");
 const progressBar = document.getElementsByClassName("progress-inner")[0];
 
-const GRID_ROWS = 10;
-const GRID_COLS = 15;
 const TOTAL_SPACES = GRID_ROWS * GRID_ROWS;
 
 const LEVEL_MULTIPLIER = 2;
@@ -87,6 +85,8 @@ const removeFoodFromCell = ({x, y}) => {
 
     wormFoodLocations.delete(`${x}-${y}`);
 };
+
+const generateRandomColour = () => '#' + (Math.random().toString(16) + "000000").substring(2,8);
 
 class Worm {
     /**
@@ -190,11 +190,15 @@ let playerWorm = new Worm(
         {x: 1, y: 1},
         {x: 1, y: 2},
     ],
-    "lightseagreen",
-    "darksalmon",
+    generateRandomColour(),
+    generateRandomColour(),
 );
 
 addEventListener("keydown", (event) => {
+    if(event.repeat){
+        return;
+    }
+
     if(event.key === "ArrowUp"){
         playerWorm.move('U');
     } else if(event.key === "ArrowDown"){
@@ -208,6 +212,7 @@ addEventListener("keydown", (event) => {
 
 const spawnFood = () => {
     const multiplier = Math.floor(Math.random() * 3);
+    console.debug("Multiplier " + multiplier);
 
     for(let i = 0; i < TOTAL_SPACES / 50 * multiplier; i++){
         const randX = Math.floor(Math.random() * GRID_COLS);
@@ -219,7 +224,7 @@ const spawnFood = () => {
             continue;
         }
 
-        const colour = '#' + (Math.random().toString(16) + "000000").substring(2,8);
+        const colour = generateRandomColour();
         addFoodToCell(randPos, colour);
     }
 };
