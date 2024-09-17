@@ -1,7 +1,9 @@
 const grid = document.getElementById("wormo-grid");
 const foodCounter = document.getElementById("food-counter");
 const foodNeeded = document.getElementById("food-needed");
-const progressBar = document.getElementsByClassName("progress-inner")[0];
+const progressBar = document.getElementById("progress-inner");
+const loading = document.getElementById("ui-loading");
+const progressBox = document.getElementById("ui-progress");
 
 const TOTAL_SPACES = GRID_ROWS * GRID_ROWS;
 
@@ -74,18 +76,6 @@ const updateFoodCounter = (consumed, needed) => {
     progressBar.style.width = `${percentage}%`;
 };
 
-const removeFoodFromCell = ({x, y}) => {
-    const index = x + y * GRID_COLS;
-    console.debug(`Removing worm food from ${x},${y}`)
-
-    const cell = grid.children.item(index);
-    cell.innerHTML = "";
-    cell.classList.remove("worm-food");
-    cell.style.removeProperty("colour");
-
-    wormFoodLocations.delete(`${x}-${y}`);
-};
-
 const generateRandomColour = () => '#' + (Math.random().toString(16) + "000000").substring(2,8);
 
 class Worm {
@@ -153,21 +143,6 @@ class Worm {
         headPos.y = newHeadPos.y;
 
         addColourToCell(headPos, this.headColour);
-
-        if(checkCellHasFood(headPos)){
-            removeFoodFromCell(headPos);
-
-            this.foodConsumed++;
-
-            console.debug("Consumed: " + this.foodConsumed);
-            console.debug("Needed: " + calculateFoodToExtend(this.positions.length));
-
-            if(this.foodConsumed === calculateFoodToExtend(this.positions.length)){
-                this.extend();
-            }
-
-            updateFoodCounter(this.foodConsumed, calculateFoodToExtend(this.positions.length));
-        }
     }
 
     extend() {
@@ -182,52 +157,136 @@ class Worm {
         this.positions = newPositions;
         this.foodConsumed = 0;
     }
-}
 
-let playerWorm = new Worm(
-    [
-        {x: 0, y: 1},
-        {x: 1, y: 1},
-        {x: 1, y: 2},
-    ],
-    generateRandomColour(),
-    generateRandomColour(),
-);
+    getPositionString() {
+        let ret = this.positions[0].x + ':' + this.positions[0].y;
+
+        for(let i = 1; i < this.positions.length; i++){
+            ret += ',' + this.positions[i].x + ':' + this.positions[i].y;
+        }
+
+        return ret;
+    }
+}
 
 addEventListener("keydown", (event) => {
     if(event.repeat){
         return;
     }
 
+    let dir = null;
+
     if(event.key === "ArrowUp"){
-        playerWorm.move('U');
+        dir = 'U';
     } else if(event.key === "ArrowDown"){
-        playerWorm.move('D');
+        dir = 'D';
     } else if(event.key === "ArrowLeft"){
-        playerWorm.move('L');
+        dir = 'L';
     } else if(event.key === "ArrowRight"){
-        playerWorm.move('R');
+        dir = 'R';
+    } else{
+        return;
     }
+
+    playerWorm.move(dir);
+    ws.send(wsEvents.MOVE + "\n" + dir);
 });
 
-const spawnFood = () => {
-    const multiplier = Math.floor(Math.random() * 3);
-    console.debug("Multiplier " + multiplier);
+const parsePositions = (str) => {
+    const splitStr = str.split(',');
+    const positions = Array(splitStr.length);
 
-    for(let i = 0; i < TOTAL_SPACES / 50 * multiplier; i++){
-        const randX = Math.floor(Math.random() * GRID_COLS);
-        const randY = Math.floor(Math.random() * GRID_ROWS);
-
-        const randPos = {x: randX, y: randY};
-
-        if(checkCellHasFood(randPos)){
-            continue;
-        }
-
-        const colour = generateRandomColour();
-        addFoodToCell(randPos, colour);
+    for(let i = 0; i < splitStr.length; i++){
+        const [x, y] = splitStr[i].split(':');
+        positions[i] = {x: parseInt(x), y: parseInt(y)};
     }
+
+    return positions;
 };
 
-spawnFood();
-setInterval(spawnFood, 5000);
+const parseNewEvent = (str) => {
+    const firstComma = str.indexOf(',');
+    const id = str.slice(0, firstComma);
+    const positions = parsePositions(str.slice(firstComma + 1));
+
+    return [id, positions];
+};
+
+const parseMoveEvent = (str) => {
+    return str.split(',');
+};
+
+let playerWorm;
+let enemyWorms = new Map();
+
+let ws;
+
+const wsEvents = {
+    NEW: "NEW",
+    MOVE: "MOVE",
+};
+
+const handleWsMsg = ({ data }) => {
+    console.debug("ws msg: " + data);
+
+    const firstNewLine = data.indexOf("\n");
+
+    const event = data.slice(0, firstNewLine);
+    const msg = data.slice(firstNewLine + 1, data.length);
+
+    switch(event){
+        case wsEvents.NEW: {
+            const [id, positions] = parseNewEvent(msg);
+
+            const enemyWorm = new Worm(
+                positions,
+                generateRandomColour(),
+                generateRandomColour(),
+            );
+            enemyWorms.set(id, enemyWorm);
+
+            break;
+        }
+        case wsEvents.MOVE: {
+            const [id, dir] = parseMoveEvent(msg);
+            enemyWorms.get(id).move(dir);
+
+            break;
+        }
+    }
+}
+
+const init = () => {
+    ws = new WebSocket("ws://localhost:8001");
+    ws.onmessage = ({ data }) => {
+        const unparsedWorms = data.split("\n");
+
+        let positions = parseNewEvent(unparsedWorms[0])[1];
+
+        playerWorm = new Worm(
+            positions,
+            generateRandomColour(),
+            generateRandomColour(),
+        );
+
+        for(let i = 1; i < unparsedWorms.length; i++){
+            const [id, positions] = parseNewEvent(unparsedWorms[i]);
+
+            const enemyWorm = new Worm(
+                positions,
+                generateRandomColour(),
+                generateRandomColour(),
+            );
+
+            enemyWorms.set(id, enemyWorm);
+        }
+
+        loading.style.visibility = "hidden";
+        progressBox.style.visibility = "visible";
+
+        ws.onmessage = handleWsMsg;
+    };
+    ws.onopen = () => ws.send("INIT");
+}
+
+init();
