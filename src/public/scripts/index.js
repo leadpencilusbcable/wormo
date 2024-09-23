@@ -43,6 +43,18 @@ const addFoodToCell = ({x, y}, colour) => {
     wormFoodLocations.add(`${x}-${y}`);
 };
 
+const removeFoodFromCell = ({x, y}) => {
+    const index = x + y * GRID_COLS;
+    console.debug(`Removing worm food from ${x},${y}`)
+
+    const cell = grid.children.item(index);
+    cell.innerHTML = "";
+    cell.classList.remove("worm-food");
+    cell.style.removeProperty("colour");
+
+    wormFoodLocations.delete(`${x}-${y}`);
+};
+
 const checkCellIsEmpty = ({x, y}) => {
     const playerWormPresent = playerWorm.positions.some(pos => pos.x === x && pos.y === y);
     const inBounds = checkCellInBounds({x, y});
@@ -78,9 +90,9 @@ const updateFoodCounter = (consumed, needed) => {
 
 const generateRandomColour = () => '#' + (Math.random().toString(16) + "000000").substring(2,8);
 
-class Worm {
+class PlayerWorm {
     /**
-        @positions {x: number, y: number}[] tail->head
+        @positions {x: number, y: number}[] head->tail
         @colour string
         @headColour string
     **/
@@ -90,18 +102,18 @@ class Worm {
         this.headColour = headColour;
         this.foodConsumed = 0;
 
-        for(let i = 0; i < positions.length - 1; i++){
+        for(let i = 1; i < positions.length; i++){
             addColourToCell(positions[i], colour);
         }
 
-        addColourToCell(positions[positions.length - 1], headColour);
+        addColourToCell(positions[0], headColour);
     }
 
     /**
         @direction "U" | "D" | "L" | "R"
     **/
     move(direction) {
-        let headPos = this.positions[this.positions.length - 1];
+        let headPos = this.positions[0];
         const newHeadPos = {...headPos};
 
         switch(direction){
@@ -125,17 +137,17 @@ class Worm {
 
         removeColourFromCell(headPos);
 
-        for(let i = 0; i < this.positions.length - 1; i++){
+        for(let i = this.positions.length - 1; i > 0; i--){
             let pos = this.positions[i];
             removeColourFromCell(pos);
 
-            const nextPos = this.positions[i + 1];
+            const nextPos = this.positions[i - 1];
 
             pos.x = nextPos.x;
             pos.y = nextPos.y;
         }
 
-        for(let i = 0; i < this.positions.length - 1; i++){
+        for(let i = this.positions.length - 1; i > 0; i--){
             addColourToCell(this.positions[i], this.colour);
         }
 
@@ -143,19 +155,117 @@ class Worm {
         headPos.y = newHeadPos.y;
 
         addColourToCell(headPos, this.headColour);
+
+        if(checkCellHasFood(headPos)){
+            removeFoodFromCell(headPos);
+
+            this.foodConsumed++;
+
+            console.debug("Consumed: " + this.foodConsumed);
+            console.debug("Needed: " + calculateFoodToExtend(this.positions.length));
+
+            if(this.foodConsumed === calculateFoodToExtend(this.positions.length)){
+                this.extend();
+            }
+
+            updateFoodCounter(this.foodConsumed, calculateFoodToExtend(this.positions.length));
+        }
     }
 
     extend() {
-        const tailPos = this.positions[0];
+        const tailPos = this.positions[this.positions.length - 1];
         const newPos = findAdjacentFreeSpace(tailPos);
 
-        const newPositions = [
-            newPos,
-            ...this.positions,
-        ];
-
-        this.positions = newPositions;
+        this.positions.push(newPos);
+        addColourToCell(newPos, this.colour);
         this.foodConsumed = 0;
+
+        ws.send(wsEvents.EXTEND + "\n" + newPos.x + ":" + newPos.y);
+    }
+
+    getPositionString() {
+        let ret = this.positions[0].x + ':' + this.positions[0].y;
+
+        for(let i = 1; i < this.positions.length; i++){
+            ret += ',' + this.positions[i].x + ':' + this.positions[i].y;
+        }
+
+        return ret;
+    }
+}
+
+class EnemyWorm {
+    /**
+        @positions {x: number, y: number}[] head->tail
+        @colour string
+        @headColour string
+    **/
+    constructor(positions, colour, headColour) {
+        this.positions = positions;
+        this.colour = colour;
+        this.headColour = headColour;
+
+        for(let i = 1; i < positions.length; i++){
+            addColourToCell(positions[i], colour);
+        }
+
+        addColourToCell(positions[0], headColour);
+    }
+
+    /**
+        @direction "U" | "D" | "L" | "R"
+    **/
+    move(direction) {
+        let headPos = this.positions[0];
+        const newHeadPos = {...headPos};
+
+        switch(direction){
+            case 'U':
+                newHeadPos.y--;
+                break;
+            case 'D':
+                newHeadPos.y++;
+                break;
+            case 'L':
+                newHeadPos.x--;
+                break;
+            case 'R':
+                newHeadPos.x++;
+                break;
+        }
+
+        if(!checkCellInBounds(newHeadPos)){
+            return;
+        }
+
+        removeColourFromCell(headPos);
+
+        for(let i = this.positions.length - 1; i > 0; i--){
+            let pos = this.positions[i];
+            removeColourFromCell(pos);
+
+            const nextPos = this.positions[i - 1];
+
+            pos.x = nextPos.x;
+            pos.y = nextPos.y;
+        }
+
+        for(let i = this.positions.length - 1; i > 0; i--){
+            addColourToCell(this.positions[i], this.colour);
+        }
+
+        headPos.x = newHeadPos.x;
+        headPos.y = newHeadPos.y;
+
+        addColourToCell(headPos, this.headColour);
+
+        if(checkCellHasFood(headPos)){
+            removeFoodFromCell(headPos);
+        }
+    }
+
+    extend(newPos) {
+        this.positions.push(newPos);
     }
 
     getPositionString() {
@@ -212,18 +322,17 @@ const parseNewEvent = (str) => {
     return [id, positions];
 };
 
-const parseMoveEvent = (str) => {
-    return str.split(',');
-};
-
 let playerWorm;
 let enemyWorms = new Map();
+let foodPositions = new Set();
 
 let ws;
 
 const wsEvents = {
+    EXTEND: "EXTEND",
     NEW: "NEW",
     MOVE: "MOVE",
+    SPAWNFOOD: "SPAWNFOOD",
 };
 
 const handleWsMsg = ({ data }) => {
@@ -238,7 +347,7 @@ const handleWsMsg = ({ data }) => {
         case wsEvents.NEW: {
             const [id, positions] = parseNewEvent(msg);
 
-            const enemyWorm = new Worm(
+            const enemyWorm = new EnemyWorm(
                 positions,
                 generateRandomColour(),
                 generateRandomColour(),
@@ -248,8 +357,22 @@ const handleWsMsg = ({ data }) => {
             break;
         }
         case wsEvents.MOVE: {
-            const [id, dir] = parseMoveEvent(msg);
+            const [id, dir] = msg.split(',');
             enemyWorms.get(id).move(dir);
+
+            break;
+        }
+        case wsEvents.SPAWNFOOD: {
+            const [xStr, yStr] = msg.split(':');
+            addFoodToCell({x: parseInt(xStr), y: parseInt(yStr)}, generateRandomColour());
+
+            break;
+        }
+        case wsEvents.EXTEND: {
+            const [id, pos] = msg.split(',');
+            const [xStr, yStr] = pos.split(':');
+
+            enemyWorms.get(id).extend({ x: parseInt(xStr), y: parseInt(yStr) });
 
             break;
         }
@@ -263,7 +386,7 @@ const init = () => {
 
         let positions = parseNewEvent(unparsedWorms[0])[1];
 
-        playerWorm = new Worm(
+        playerWorm = new PlayerWorm(
             positions,
             generateRandomColour(),
             generateRandomColour(),
@@ -272,7 +395,7 @@ const init = () => {
         for(let i = 1; i < unparsedWorms.length; i++){
             const [id, positions] = parseNewEvent(unparsedWorms[i]);
 
-            const enemyWorm = new Worm(
+            const enemyWorm = new EnemyWorm(
                 positions,
                 generateRandomColour(),
                 generateRandomColour(),
