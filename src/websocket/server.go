@@ -109,6 +109,11 @@ func newFood() *pos {
 			continue
 		}
 
+		cells[foodPos] = cellInfo{
+			cells[foodPos].worm,
+			true,
+		}
+
 		return &foodPos
 	}
 
@@ -156,6 +161,14 @@ func readFromConnection(ws *websocket.Conn) {
 		case eventMove:
 			{
 				conns[ws].move(data)
+
+				if cells[conns[ws].pos[0]].food {
+					cells[conns[ws].pos[0]] = cellInfo{
+						ws,
+						false,
+					}
+				}
+
 				broadcast([]byte(eventMove+"\n"+conns[ws].id+","+data), ws)
 			}
 		case eventExtend:
@@ -195,7 +208,20 @@ func readFromConnection(ws *websocket.Conn) {
 					}
 				}
 
-				ws.Write([]byte(existingWormsStr))
+				existingFoodStr := ""
+
+				for k, v := range cells {
+					if v.food {
+						existingFoodStr += "," + strconv.Itoa(k.x) + ":" + strconv.Itoa(k.y)
+					}
+				}
+
+				if existingFoodStr != "" {
+					ws.Write([]byte(existingWormsStr + "|" + existingFoodStr[1:]))
+				} else {
+					ws.Write([]byte(existingWormsStr))
+				}
+
 				broadcast([]byte(eventNewWorm+"\n"+newWormStr), ws)
 			}
 		}

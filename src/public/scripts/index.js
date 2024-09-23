@@ -382,7 +382,9 @@ const handleWsMsg = ({ data }) => {
 const init = () => {
     ws = new WebSocket("ws://localhost:8001");
     ws.onmessage = ({ data }) => {
-        const unparsedWorms = data.split("\n");
+        let [wormMsg, foodMsg] = data.split('|');
+
+        const unparsedWorms = wormMsg.split("\n");
 
         let positions = parseNewEvent(unparsedWorms[0])[1];
 
@@ -402,6 +404,14 @@ const init = () => {
             );
 
             enemyWorms.set(id, enemyWorm);
+        }
+
+        if(foodMsg !== undefined){
+            const foodPositions = parsePositions(foodMsg);
+
+            for(const foodPosition of foodPositions){
+                addFoodToCell(foodPosition, generateRandomColour());
+            }
         }
 
         loading.style.visibility = "hidden";
