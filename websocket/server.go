@@ -243,6 +243,7 @@ func broadcast(msg []byte, except *websocket.Conn) {
 }
 
 const foodInterval = 5 * time.Second
+const maxFoodPerInterval = 5
 
 func StartServer(port uint, x int, y int) {
 	rows = y
@@ -266,9 +267,15 @@ func StartServer(port uint, x int, y int) {
 		for range ticker.C {
 			if len(conns) > 0 {
 				newFoodPos := newFood()
+				foodStr := strconv.Itoa(newFoodPos.x) + ":" + strconv.Itoa(newFoodPos.y)
+
+				for i := 0; i < rand.Intn(maxFoodPerInterval); i++ {
+					newFoodPos = newFood()
+					foodStr += "," + strconv.Itoa(newFoodPos.x) + ":" + strconv.Itoa(newFoodPos.y)
+				}
 
 				if newFoodPos != nil {
-					broadcast([]byte(eventSpawnFood+"\n"+strconv.Itoa(newFoodPos.x)+":"+strconv.Itoa(newFoodPos.y)), nil)
+					broadcast([]byte(eventSpawnFood+"\n"+foodStr), nil)
 				}
 			}
 		}

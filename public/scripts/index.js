@@ -7,7 +7,7 @@ const progressBox = document.getElementById("ui-progress");
 
 const TOTAL_SPACES = GRID_ROWS * GRID_ROWS;
 
-const LEVEL_MULTIPLIER = 2;
+const LEVEL_MULTIPLIER = 1;
 
 const wormFoodLocations = new Set();
 
@@ -363,8 +363,11 @@ const handleWsMsg = ({ data }) => {
             break;
         }
         case wsEvents.SPAWNFOOD: {
-            const [xStr, yStr] = msg.split(':');
-            addFoodToCell({x: parseInt(xStr), y: parseInt(yStr)}, generateRandomColour());
+            const foodPositions = parsePositions(msg);
+
+            for(const foodPosition of foodPositions){
+                addFoodToCell(foodPosition, generateRandomColour());
+            }
 
             break;
         }
