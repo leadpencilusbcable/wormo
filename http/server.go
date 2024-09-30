@@ -1,56 +1,22 @@
 package http
 
 import (
-	"errors"
 	"html/template"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 )
 
-var gameFile []byte = nil
-var errorFile []byte = nil
-var notFoundFile []byte = nil
-
-func serveDirectory(dir string, w *http.ResponseWriter, r *http.Request) error {
-	uriBlocks := strings.SplitAfter(r.RequestURI, "/")
-	filePath := uriBlocks[len(uriBlocks)-1]
-
-	if strings.Contains(filePath, "..") {
-		return errors.New("cannot go upwards when looking for file")
-	}
-
-	filePath = "./" + dir + "/" + filePath
-
-	file, error := os.ReadFile(filePath)
-
-	writer := (*w)
-
-	if error != nil {
-		log.Println("Error reading " + filePath)
-
-		writer.WriteHeader(500)
-		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		writer.Write(notFoundFile)
-
-		return nil
-	}
-
-	mimeType := "any"
-
-	if strings.HasSuffix(filePath, ".js") {
-		mimeType = "text/javascript"
-	}
-
-	writer.Header().Set("Content-Type", mimeType+"; charset=utf-8")
-	writer.Write(file)
-
-	return nil
+type Server struct {
+	gameFile     []byte
+	errorFile    []byte
+	notFoundFile []byte
+	stylesPath   string
+	scriptsPath  string
+	Server       *http.Server
 }
 
-func createGameFile(x int, y int) error {
+func createGameFile(gridWidth uint8, gridHeight uint8, gameFilePath string) error {
 	template, error := template.New("game.html").Funcs(template.FuncMap{
 		"loop": func(n int) []struct{} {
 			return make([]struct{}, n)
@@ -61,7 +27,7 @@ func createGameFile(x int, y int) error {
 		return error
 	}
 
-	gameFile, error := os.Create("./public/pages/game.html")
+	gameFile, error := os.Create(gameFilePath)
 
 	if error != nil {
 		return error
@@ -73,7 +39,7 @@ func createGameFile(x int, y int) error {
 		X         int
 		Y         int
 		TotalSize int
-	}{X: x, Y: y, TotalSize: x * y})
+	}{X: int(gridWidth), Y: int(gridHeight), TotalSize: int(gridWidth) * int(gridHeight)})
 
 	if error != nil {
 		return error
@@ -82,65 +48,59 @@ func createGameFile(x int, y int) error {
 	return nil
 }
 
-func handleStyles(w http.ResponseWriter, r *http.Request) {
-	serveDirectory("public/styles", &w, r)
-}
-
-func handleScripts(w http.ResponseWriter, r *http.Request) {
-	serveDirectory("public/scripts", &w, r)
-}
-
-func handle(w http.ResponseWriter, r *http.Request) {
-	if gameFile == nil {
-		var error error
-
-		gameFile, error = os.ReadFile("./public/pages/game.html")
-
-		if error != nil {
-			log.Println("Error reading game file")
-
-			w.WriteHeader(500)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write(errorFile)
-
-			return
-		}
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(gameFile)
-}
-
-func StartServer(port uint, x int, y int) error {
-	error := createGameFile(x, y)
+func NewServer(
+	port uint16,
+	gridWidth uint8,
+	gridHeight uint8,
+	gameFilePath string,
+	errorFilePath string,
+	notFoundFilePath string,
+	stylesPath string,
+	scriptsPath string,
+) (*Server, error) {
+	error := createGameFile(gridWidth, gridHeight, gameFilePath)
 
 	if error != nil {
-		return error
+		return nil, error
 	}
 
-	errorFile, error = os.ReadFile("./public/pages/error.html")
+	gameFile, error := os.ReadFile(gameFilePath)
 
 	if error != nil {
-		return error
+		return nil, error
 	}
 
-	notFoundFile, error = os.ReadFile("./public/pages/pagenotfound.html")
+	errorFile, error := os.ReadFile(errorFilePath)
 
 	if error != nil {
-		return error
+		return nil, error
+	}
+
+	notFoundFile, error := os.ReadFile(notFoundFilePath)
+
+	if error != nil {
+		return nil, error
+	}
+
+	httpServer := &http.Server{
+		Addr: ":" + strconv.FormatUint(uint64(port), 10),
+	}
+
+	server := &Server{
+		gameFile,
+		errorFile,
+		notFoundFile,
+		stylesPath,
+		scriptsPath,
+		httpServer,
 	}
 
 	httpMux := http.NewServeMux()
-	httpMux.HandleFunc("/", handle)
-	httpMux.HandleFunc("/scripts/", handleScripts)
-	httpMux.HandleFunc("/styles/", handleStyles)
+	httpMux.HandleFunc("/", server.handle)
+	httpMux.HandleFunc("/scripts/", server.handleScripts)
+	httpMux.HandleFunc("/styles/", server.handleStyles)
 
-	httpServer := &http.Server{
-		Addr:    ":" + strconv.FormatUint(uint64(port), 10),
-		Handler: httpMux,
-	}
+	httpServer.Handler = httpMux
 
-	httpServer.ListenAndServe()
-
-	return nil
+	return server, nil
 }

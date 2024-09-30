@@ -4,11 +4,10 @@ import (
 	"log"
 	"sync"
 	"wormo/http"
-	"wormo/websocket"
 )
 
-const ROWS int = 40
-const COLS int = 30
+const ROWS uint8 = 40
+const COLS uint8 = 30
 
 func main() {
 	var waitGroup sync.WaitGroup
@@ -16,17 +15,29 @@ func main() {
 
 	go func() {
 		defer waitGroup.Done()
-		error := http.StartServer(8000, ROWS, COLS)
+
+		server, error := http.NewServer(
+			8000,
+			ROWS,
+			COLS,
+			"./public/pages/game.html",
+			"./public/pages/error.html",
+			"./public/pages/pagenotfound.html",
+			"public/styles",
+			"public/scripts",
+		)
 
 		if error != nil {
 			log.Panic(error)
 		}
+
+		server.Server.ListenAndServe()
 	}()
 
 	go func() {
 		defer waitGroup.Done()
 
-		websocket.StartServer(8001, ROWS, COLS)
+		//websocket.StartServer(8001, ROWS, COLS)
 	}()
 
 	waitGroup.Wait()
