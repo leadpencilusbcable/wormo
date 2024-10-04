@@ -16,7 +16,7 @@ type Server struct {
 	Server       *http.Server
 }
 
-func createGameFile(gridWidth uint8, gridHeight uint8, gameFilePath string) error {
+func createGameFile(gridWidth uint8, gridHeight uint8, levelMultiplier uint8, gameFilePath string) error {
 	template, error := template.New("game.html").Funcs(template.FuncMap{
 		"loop": func(n int) []struct{} {
 			return make([]struct{}, n)
@@ -36,10 +36,16 @@ func createGameFile(gridWidth uint8, gridHeight uint8, gameFilePath string) erro
 	defer gameFile.Close()
 
 	error = template.Execute(gameFile, struct {
-		X         int
-		Y         int
-		TotalSize int
-	}{X: int(gridWidth), Y: int(gridHeight), TotalSize: int(gridWidth) * int(gridHeight)})
+		X               int
+		Y               int
+		TotalSize       int
+		LevelMultiplier int
+	}{
+		int(gridWidth),
+		int(gridHeight),
+		int(gridWidth) * int(gridHeight),
+		int(levelMultiplier),
+	})
 
 	if error != nil {
 		return error
@@ -52,13 +58,14 @@ func NewServer(
 	port uint16,
 	gridWidth uint8,
 	gridHeight uint8,
+	levelMultiplier uint8,
 	gameFilePath string,
 	errorFilePath string,
 	notFoundFilePath string,
 	stylesPath string,
 	scriptsPath string,
 ) (*Server, error) {
-	error := createGameFile(gridWidth, gridHeight, gameFilePath)
+	error := createGameFile(gridWidth, gridHeight, levelMultiplier, gameFilePath)
 
 	if error != nil {
 		return nil, error

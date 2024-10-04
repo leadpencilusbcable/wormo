@@ -48,7 +48,7 @@ func serveDirectory(dir string, w *http.ResponseWriter, r *http.Request, notFoun
 		return
 	}
 
-	extension := filePath[strings.LastIndexByte(filePath, '.'):]
+	extension := filePath[strings.LastIndexByte(filePath, '.')+1:]
 
 	var mimeType string
 

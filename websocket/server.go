@@ -1,285 +1,165 @@
 package websocket
 
 import (
-	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/websocket"
 )
 
-type pos struct {
-	x int
-	y int
+const foodInterval = 5 * time.Second
+const maxFoodPerInterval = 5
+
+type Server struct {
+	gridWidth       int
+	gridHeight      int
+	levelMultiplier int
+	idCounter       uint64
+	worms           map[string]*worm
+	wormConns       map[*websocket.Conn]string
+	grid            [][]cellInfo
+	Server          *http.Server
+	mu              sync.RWMutex
 }
 
-type worm struct {
-	id  string
-	pos []pos
-}
+func (server *Server) broadcast(msg []byte) {
+	server.mu.RLock()
 
-func (worm worm) move(dir string) {
-	for i := len(worm.pos) - 1; i > 0; i-- {
-		pos := &worm.pos[i]
-		nextPos := worm.pos[i-1]
-
-		*pos = nextPos
+	for k := range server.wormConns {
+		k.Write(msg)
 	}
 
-	headPos := &worm.pos[0]
-
-	switch dir {
-	case "U":
-		headPos.y--
-	case "D":
-		headPos.y++
-	case "L":
-		headPos.x--
-	case "R":
-		headPos.x++
-	}
+	server.mu.RUnlock()
 }
 
-type cellInfo struct {
-	worm *websocket.Conn
-	food bool
-}
+func (server *Server) broadcastExcept(msg []byte, except *websocket.Conn) {
+	server.mu.RLock()
 
-const INIT_WORM_LENGTH int = 3
-
-const (
-	eventInit      = "INIT"
-	eventNewWorm   = "NEW"
-	eventMove      = "MOVE"
-	eventSpawnFood = "SPAWNFOOD"
-	eventExtend    = "EXTEND"
-)
-
-var cells map[pos]cellInfo = map[pos]cellInfo{}
-var conns map[*websocket.Conn]worm = map[*websocket.Conn]worm{}
-
-var rows int
-var cols int
-
-var wormCounter = 0
-
-func initGrid(x int, y int) {
-	for i := 0; i < x; i++ {
-		for j := 0; j < y; j++ {
-			cells[pos{i, j}] = cellInfo{nil, false}
+	for k := range server.wormConns {
+		if k != except {
+			k.Write(msg)
 		}
 	}
+
+	server.mu.RUnlock()
 }
 
-func wormToString(worm worm) string {
-	ret := worm.id + "," + strconv.Itoa(worm.pos[0].x) + ":" + strconv.Itoa(worm.pos[0].y)
+func (server *Server) newFood() *pos {
+	for i := 0; i < 5; i++ {
+		x := rand.Intn(server.gridWidth)
+		y := rand.Intn(server.gridHeight)
 
-	for i := 1; i < len(worm.pos); i++ {
-		ret += "," + strconv.Itoa(worm.pos[i].x) + ":" + strconv.Itoa(worm.pos[i].y)
-	}
+		server.mu.RLock()
 
-	return ret
-}
+		food := &server.grid[x][y].food
 
-func makeWorm() worm {
-	x := rand.Intn(cols-10) + 5
-	y := rand.Intn(rows-10) + 5
-
-	wormPos := []pos{{x, y}, {x - 1, y}, {x - 2, y}}
-	wormCounter++
-
-	return worm{
-		strconv.FormatInt(int64(wormCounter), 10),
-		wormPos,
-	}
-}
-
-func newFood() *pos {
-	for i := 0; i < 10; i++ {
-		x := rand.Intn(cols)
-		y := rand.Intn(rows)
-
-		foodPos := pos{x, y}
-
-		if cells[foodPos].food {
+		if *food {
+			server.mu.RUnlock()
 			continue
 		}
 
-		cells[foodPos] = cellInfo{
-			cells[foodPos].worm,
-			true,
-		}
+		server.mu.RUnlock()
 
-		return &foodPos
+		server.mu.Lock()
+		*food = true
+		server.mu.Unlock()
+
+		return &pos{x, y}
 	}
 
 	return nil
 }
 
-func handle(ws *websocket.Conn) {
-	log.Println("Incoming connection: ", ws.LocalAddr())
-
-	conns[ws] = makeWorm()
-
-	readFromConnection(ws)
-}
-
-func readFromConnection(ws *websocket.Conn) {
-	buffer := make([]byte, 1024)
-
-	for {
-		length, error := ws.Read(buffer)
-
-		if error != nil {
-			if error == io.EOF {
-				delete(conns, ws)
-				break
-			}
-
-			log.Println("Read error: ", error)
-			continue
-		}
-
-		msg := string(buffer[:length])
-		log.Println("Msg: ", msg)
-
-		event := msg
-		data := msg
-
-		eventMessageSplit := strings.Index(msg, "\n")
-
-		if eventMessageSplit != -1 {
-			event = msg[0:eventMessageSplit]
-			data = msg[eventMessageSplit+1 : length]
-		}
-
-		switch event {
-		case eventMove:
-			{
-				conns[ws].move(data)
-
-				if cells[conns[ws].pos[0]].food {
-					cells[conns[ws].pos[0]] = cellInfo{
-						ws,
-						false,
-					}
-				}
-
-				broadcast([]byte(eventMove+"\n"+conns[ws].id+","+data), ws)
-			}
-		case eventExtend:
-			{
-				strPos := strings.Split(data, ":")
-
-				x, err := strconv.Atoi(strPos[0])
-
-				if err != nil {
-					log.Println("invalid x pos received for extend")
-					break
-				}
-
-				y, err := strconv.Atoi(strPos[1])
-
-				if err != nil {
-					log.Println("invalid y pos received for extend")
-					break
-				}
-
-				tempPos := conns[ws].pos
-				conns[ws] = worm{
-					conns[ws].id,
-					append(tempPos, pos{x, y}),
-				}
-
-				broadcast([]byte(eventExtend+"\n"+conns[ws].id+","+data), ws)
-			}
-		case eventInit:
-			{
-				newWormStr := wormToString(conns[ws])
-				existingWormsStr := newWormStr
-
-				for k, v := range conns {
-					if k != ws {
-						existingWormsStr += "\n" + wormToString(v)
-					}
-				}
-
-				existingFoodStr := ""
-
-				for k, v := range cells {
-					if v.food {
-						existingFoodStr += "," + strconv.Itoa(k.x) + ":" + strconv.Itoa(k.y)
-					}
-				}
-
-				if existingFoodStr != "" {
-					ws.Write([]byte(existingWormsStr + "|" + existingFoodStr[1:]))
-				} else {
-					ws.Write([]byte(existingWormsStr))
-				}
-
-				broadcast([]byte(eventNewWorm+"\n"+newWormStr), ws)
-			}
-		}
-	}
-}
-
-func broadcast(msg []byte, except *websocket.Conn) {
-	if except != nil {
-		for k := range conns {
-			if k != except {
-				k.Write(msg)
-			}
-		}
-	} else {
-		for k := range conns {
-			k.Write(msg)
-		}
-	}
-}
-
-const foodInterval = 5 * time.Second
-const maxFoodPerInterval = 5
-
-func StartServer(port uint, x int, y int) {
-	rows = y
-	cols = x
-
-	wsMux := http.NewServeMux()
-	wsMux.Handle("/", websocket.Handler(handle))
-
-	wsServer := &http.Server{
-		Addr:    ":" + strconv.FormatUint(uint64(port), 10),
-		Handler: wsMux,
-	}
-
-	initGrid(x, y)
-
+func (server *Server) startFoodSpawn() {
 	ticker := time.NewTicker(foodInterval)
 
-	go func() {
-		defer ticker.Stop()
+	defer ticker.Stop()
 
-		for range ticker.C {
-			if len(conns) > 0 {
-				newFoodPos := newFood()
-				foodStr := strconv.Itoa(newFoodPos.x) + ":" + strconv.Itoa(newFoodPos.y)
+	for range ticker.C {
+		server.mu.RLock()
 
-				for i := 0; i < rand.Intn(maxFoodPerInterval); i++ {
-					newFoodPos = newFood()
-					foodStr += "," + strconv.Itoa(newFoodPos.x) + ":" + strconv.Itoa(newFoodPos.y)
-				}
+		unlocked := false
+
+		if len(server.wormConns) > 0 {
+			server.mu.RUnlock()
+			unlocked = true
+
+			newFoodPos := server.newFood()
+
+			foodStr := ""
+
+			if newFoodPos != nil {
+				foodStr += positionToString(newFoodPos)
+			}
+
+			for i := 0; i < rand.Intn(maxFoodPerInterval); i++ {
+				newFoodPos = server.newFood()
 
 				if newFoodPos != nil {
-					broadcast([]byte(eventSpawnFood+"\n"+foodStr), nil)
+					if foodStr != "" {
+						foodStr += ","
+					}
+
+					foodStr += positionToString(newFoodPos)
 				}
 			}
-		}
-	}()
 
-	wsServer.ListenAndServe()
+			if newFoodPos != nil {
+				server.broadcast([]byte(eventSpawnFood + "\n" + foodStr))
+			}
+		}
+
+		if !unlocked {
+			server.mu.RUnlock()
+		}
+	}
+}
+
+func (server *Server) initGrid() {
+	server.grid = make([][]cellInfo, server.gridWidth)
+
+	for i := range server.grid {
+		server.grid[i] = make([]cellInfo, server.gridHeight)
+	}
+
+	for x := 0; x < server.gridWidth; x++ {
+		for y := 0; y < server.gridHeight; y++ {
+			server.grid[x][y] = cellInfo{
+				"",
+				false,
+			}
+		}
+	}
+}
+
+func NewServer(port uint16, gridWidth uint8, gridHeight uint8, levelMultiplier uint8) *Server {
+	wsServer := &http.Server{
+		Addr: ":" + strconv.FormatUint(uint64(port), 10),
+	}
+
+	server := &Server{
+		int(gridWidth),
+		int(gridHeight),
+		int(levelMultiplier),
+		0,
+		map[string]*worm{},
+		map[*websocket.Conn]string{},
+		[][]cellInfo{},
+		wsServer,
+		sync.RWMutex{},
+	}
+
+	wsMux := http.NewServeMux()
+	wsMux.Handle("/", websocket.Handler(server.handle))
+
+	wsServer.Handler = wsMux
+
+	server.initGrid()
+
+	go server.startFoodSpawn()
+
+	return server
 }
