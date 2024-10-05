@@ -9,70 +9,20 @@ import (
 )
 
 const (
-	eventInit        = "INIT"
-	eventNewWorm     = "NEW"
-	eventMove        = "MOVE"
-	eventConsumeFood = "CONSUMEFOOD"
-	eventSpawnFood   = "SPAWNFOOD"
-	eventExtend      = "EXTEND"
+	eventInit            = "INIT"
+	eventNewWorm         = "NEW"
+	eventMove            = "MOVE"
+	eventConsumeFood     = "CONSUMEFOOD"
+	eventSpawnFood       = "SPAWNFOOD"
+	eventExtend          = "EXTEND"
+	eventChangeDirection = "CHANGEDIR"
+	eventDisconnect      = "DISCONNECT"
 )
 
-func (server *Server) handleExtend(initiatorId string) {
-	server.mu.RLock()
-
-	initiatorWorm := server.worms[initiatorId]
-	oldWormLength := len(initiatorWorm.positions)
-	tailPos := initiatorWorm.positions[oldWormLength-1]
-
-	server.mu.RUnlock()
-
-	newWormPositions := append(initiatorWorm.positions, tailPos)
-
+func (server *Server) handleChangeDir(initiatorId string, dir string) {
 	server.mu.Lock()
-
-	initiatorWorm.foodConsumed = 0
-	initiatorWorm.foodNeeded = (oldWormLength) + 1*server.levelMultiplier
-	initiatorWorm.positions = newWormPositions
-
+	server.worms[initiatorId].direction = dir
 	server.mu.Unlock()
-
-	server.broadcast([]byte(eventExtend + "\n" + initiatorId + "," + positionToString(&tailPos)))
-}
-
-func (server *Server) handleConsumeFood(initiatorId string, headPosCell *cellInfo, headPos *pos) {
-	server.mu.Lock()
-
-	initiatorWorm := server.worms[initiatorId]
-	headPosCell.food = false
-	initiatorWorm.foodConsumed++
-
-	server.mu.Unlock()
-
-	if initiatorWorm.foodConsumed == initiatorWorm.foodNeeded {
-		server.handleExtend(initiatorId)
-	}
-
-	msg := eventConsumeFood + "\n" + initiatorId + "," + positionToString(headPos)
-	server.broadcast([]byte(msg))
-}
-
-func (server *Server) handleMove(initiator *websocket.Conn, initiatorId string, dir string) {
-	server.move(initiatorId, dir)
-
-	server.mu.RLock()
-
-	initiatorWorm := server.worms[initiatorId]
-
-	headPos := &initiatorWorm.positions[0]
-	headPosCell := &server.grid[headPos.x][headPos.y]
-
-	server.mu.RUnlock()
-
-	if headPosCell.food {
-		server.handleConsumeFood(initiatorId, headPosCell, headPos)
-	}
-
-	server.broadcastExcept([]byte(eventMove+"\n"+initiatorId+","+dir), initiator)
 }
 
 func (server *Server) handleInit(initiator *websocket.Conn, initiatorId string) {
@@ -90,7 +40,7 @@ func (server *Server) handleInit(initiator *websocket.Conn, initiatorId string) 
 	}
 
 	if existingWormsMsg != "" {
-		msg += "|" + existingWormsMsg[0:len(existingWormsMsg)-1]
+		msg += "|" + existingWormsMsg[:len(existingWormsMsg)-1]
 	} else {
 		msg += "|"
 	}
@@ -107,7 +57,7 @@ func (server *Server) handleInit(initiator *websocket.Conn, initiatorId string) 
 	}
 
 	if foodPositionsMsg != "" {
-		msg += "|" + foodPositionsMsg[0:len(foodPositionsMsg)-1]
+		msg += "|" + foodPositionsMsg[:len(foodPositionsMsg)-1]
 	} else {
 		msg += "|"
 	}
@@ -134,6 +84,8 @@ func (server *Server) removePlayer(ws *websocket.Conn) {
 	delete(server.wormConns, ws)
 
 	server.mu.Unlock()
+
+	server.broadcast([]byte(eventDisconnect + "\n" + id))
 }
 
 func (server *Server) readFromConnection(ws *websocket.Conn) {
@@ -178,9 +130,9 @@ func (server *Server) readFromConnection(ws *websocket.Conn) {
 			{
 				server.handleInit(ws, id)
 			}
-		case eventMove:
+		case eventChangeDirection:
 			{
-				server.handleMove(ws, id, data)
+				server.handleChangeDir(id, data)
 			}
 		}
 	}

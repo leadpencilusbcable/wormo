@@ -32,46 +32,52 @@ NEW:
         8,1:1,1:2,1:3
 
 MOVE:
-    -Client initiates by sending "MOVE"
+    -Server initiates on set interval
+    -If worm moves into food position, CONSUMEFOOD will be sent
+    -Broadcasted to all clients
 
         MOVE
-        DIRECTION(U,D,L,R)
+        ID,POSITIONS
+        ID1,POSITIONS1....
 
     eg.
 
         MOVE
-        U
-
-    -Server updates state and then broadcasts move to other worms
-
-        MOVE
-        ID,DIRECTION(U,D,L,R)
-
-    eg.
-
-        MOVE
-        3,R
-
-    -If head cell contained food, server will broadcast CONSUMEFOOD message to other worms
+        1,2:2,2:3,2:4
+        4,8:8,7:8,6:8,5:8
 
 CONSUMEFOOD:
     -Initiated when a worm moves to a cell containing food
 
         CONSUMEFOOD
-        ID,POSITION
+        ID,POSITION|FOODCONSUMED/FOODNEEDED
 
     eg.
 
         CONSUMEFOOD
-        3,5:23
+        3,5:23|2/6
 
-EXTEND:
-    -Initiated when a worm consumes enough food to extend
+    -If worm has now eaten enough to extend, the server will add to their positions
 
-        EXTEND
-        ID,NEWPOSITION
+CHANGEDIRECTION:
+    -Initiated by client when changing direction
+    -Updates worm's direction on server
+
+        CHANGEDIRECTION
+        ID,DIR
 
     eg.
 
-        EXTEND
-        3,5:23
+        CHANGEDIRECTION
+        3,R
+
+DISCONNECT:
+    -Broadcasted to all clients when a client disconnects
+
+        DISCONNECT
+        ID
+
+    eg.
+
+        DISCONNECT
+        3

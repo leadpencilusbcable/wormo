@@ -10,6 +10,8 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+const wormMoveInterval = 500 * time.Millisecond
+
 const foodInterval = 5 * time.Second
 const maxFoodPerInterval = 5
 
@@ -80,7 +82,6 @@ func (server *Server) startFoodSpawn() {
 
 	for range ticker.C {
 		server.mu.RLock()
-
 		unlocked := false
 
 		if len(server.wormConns) > 0 {
@@ -110,6 +111,39 @@ func (server *Server) startFoodSpawn() {
 			if newFoodPos != nil {
 				server.broadcast([]byte(eventSpawnFood + "\n" + foodStr))
 			}
+		}
+
+		if !unlocked {
+			server.mu.RUnlock()
+		}
+	}
+}
+
+func (server *Server) moveWorms() {
+	ticker := time.NewTicker(wormMoveInterval)
+
+	defer ticker.Stop()
+
+	for range ticker.C {
+		server.mu.RLock()
+		unlocked := false
+
+		if len(server.wormConns) > 0 {
+			server.mu.RUnlock()
+			unlocked = true
+
+			msg := eventMove + "\n"
+
+			wormsMsg := ""
+
+			for id, worm := range server.worms {
+				server.move(id, worm.direction)
+				wormsMsg += id + "," + positionsToString(worm.positions) + "\n"
+			}
+
+			msg += wormsMsg[:len(wormsMsg)-1]
+
+			server.broadcast([]byte(msg))
 		}
 
 		if !unlocked {
@@ -160,6 +194,7 @@ func NewServer(port uint16, gridWidth uint8, gridHeight uint8, levelMultiplier u
 	server.initGrid()
 
 	go server.startFoodSpawn()
+	go server.moveWorms()
 
 	return server
 }
