@@ -81,3 +81,14 @@ DISCONNECT:
 
         DISCONNECT
         3
+
+COLLIDE:
+    -Sent to worm whose length is reduced in a collision
+
+        COLLIDE
+        NEWFOODCONSUMED/NEWFOODNEEDED
+
+    eg.
+
+        COLLIDE
+        0/3

@@ -136,8 +136,10 @@ func (server *Server) moveWorms() {
 
 			wormsMsg := ""
 
-			for id, worm := range server.worms {
-				server.move(id, worm.direction)
+			for ws, id := range server.wormConns {
+				worm := server.worms[id]
+
+				server.move(ws, worm.direction)
 				wormsMsg += id + "," + positionsToString(worm.positions) + "\n"
 			}
 

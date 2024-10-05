@@ -130,6 +130,7 @@ const wsEvents = {
     CHANGEDIR: "CHANGEDIR",
     NEW: "NEW",
     DISCONNECT: "DISCONNECT",
+    COLLIDE: "COLLIDE",
 };
 
 const handleWsMsg = ({ data }) => {
@@ -174,6 +175,12 @@ const handleWsMsg = ({ data }) => {
             for(const foodPosition of foodPositions){
                 addFoodToCell(foodPosition, generateRandomColour());
             }
+
+            break;
+        }
+        case wsEvents.COLLIDE: {
+            const [consumed, needed] = msg.split('/');
+            updateFoodCounter(consumed, needed);
 
             break;
         }
@@ -246,7 +253,7 @@ const handleWsMsg = ({ data }) => {
 }
 
 const init = () => {
-    ws = new WebSocket("ws://localhost:8001");
+    ws = new WebSocket(document.URL.replace("http", "ws").replace("8000", "8001"));
     ws.onmessage = handleWsMsg;
     ws.onopen = () => {
         ws.send("INIT");

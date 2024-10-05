@@ -4,6 +4,8 @@ import (
 	"math/rand"
 	"strconv"
 	"sync/atomic"
+
+	"golang.org/x/net/websocket"
 )
 
 type pos struct {
@@ -21,6 +23,30 @@ type worm struct {
 type cellInfo struct {
 	worm string
 	food bool
+}
+
+func (server *Server) reduce(worm *worm, amount int) {
+	server.mu.RLock()
+	newLength := len(worm.positions) - amount
+	server.mu.RUnlock()
+
+	if newLength < 1 {
+		server.mu.Lock()
+
+		worm.positions = []pos{worm.positions[0]}
+		worm.foodConsumed = 0
+		worm.foodNeeded = 1
+
+		server.mu.Unlock()
+	} else {
+		server.mu.Lock()
+
+		worm.positions = worm.positions[:newLength]
+		worm.foodConsumed = 0
+		worm.foodNeeded = newLength * server.levelMultiplier
+
+		server.mu.Unlock()
+	}
 }
 
 func (server *Server) extend(worm *worm) {
@@ -58,28 +84,17 @@ func (server *Server) consumeFood(id string, headPosCell *cellInfo, headPos *pos
 	server.broadcast([]byte(eventConsumeFood + "\n" + id + "," + positionToString(headPos) + "|" + strconv.Itoa(worm.foodConsumed) + "/" + strconv.Itoa(worm.foodNeeded)))
 }
 
-func (server *Server) move(id string, dir string) {
+func (server *Server) move(ws *websocket.Conn, dir string) {
 	server.mu.RLock()
 
+	id := server.wormConns[ws]
 	worm := server.worms[id]
 
 	positions := worm.positions
 	tailPos := positions[len(positions)-1]
+	headPos := positions[0]
 
 	server.mu.RUnlock()
-
-	server.mu.Lock()
-	server.grid[tailPos.x][tailPos.y].worm = ""
-	server.mu.Unlock()
-
-	for i := len(positions) - 1; i > 0; i-- {
-		pos := &positions[i]
-		nextPos := positions[i-1]
-
-		*pos = nextPos
-	}
-
-	headPos := &positions[0]
 
 	switch dir {
 	case "U":
@@ -92,20 +107,49 @@ func (server *Server) move(id string, dir string) {
 		headPos.x++
 	}
 
+	if headPos.x == -1 || headPos.x == server.gridWidth || headPos.y == -1 || headPos.y == server.gridHeight {
+		oldFoodConsumed, oldFoodNeeded := worm.foodConsumed, worm.foodNeeded
+		server.reduce(worm, len(positions)/2)
+
+		if worm.foodConsumed != oldFoodConsumed || worm.foodNeeded != oldFoodNeeded {
+			ws.Write([]byte(eventCollide + "\n" + strconv.Itoa(worm.foodConsumed) + "/" + strconv.Itoa(worm.foodNeeded)))
+		}
+
+		return
+	}
+
+	tailPosOverlap := false
+
+	for i := len(positions) - 1; i > 0; i-- {
+		pos := &positions[i]
+		nextPos := positions[i-1]
+
+		if nextPos.x == tailPos.x && nextPos.y == tailPos.y {
+			tailPosOverlap = true
+		}
+
+		server.mu.Lock()
+		*pos = nextPos
+		server.mu.Unlock()
+	}
+
 	server.mu.Lock()
 
 	worm.positions = positions
+	worm.positions[0] = headPos
 
 	headPosCell := &server.grid[headPos.x][headPos.y]
 
-	//this won't work in cases where worm's old tailpos is still taken up by worm. temp solution
-	server.grid[tailPos.x][tailPos.y].worm = ""
+	if !tailPosOverlap {
+		server.grid[tailPos.x][tailPos.y].worm = ""
+	}
+
 	headPosCell.worm = id
 
 	server.mu.Unlock()
 
 	if headPosCell.food {
-		server.consumeFood(id, headPosCell, headPos)
+		server.consumeFood(id, headPosCell, &headPos)
 	}
 }
 
