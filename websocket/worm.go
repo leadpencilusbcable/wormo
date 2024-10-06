@@ -4,8 +4,6 @@ import (
 	"math/rand"
 	"strconv"
 	"sync/atomic"
-
-	"golang.org/x/net/websocket"
 )
 
 type pos struct {
@@ -33,6 +31,10 @@ func (server *Server) reduce(worm *worm, amount int) {
 	if newLength < 1 {
 		server.mu.Lock()
 
+		for i := 1; i < len(worm.positions); i++ {
+			server.grid[worm.positions[i].x][worm.positions[i].y].worm = ""
+		}
+
 		worm.positions = []pos{worm.positions[0]}
 		worm.foodConsumed = 0
 		worm.foodNeeded = 1
@@ -41,7 +43,17 @@ func (server *Server) reduce(worm *worm, amount int) {
 	} else {
 		server.mu.Lock()
 
-		worm.positions = worm.positions[:newLength]
+		newPositions := make([]pos, newLength)
+
+		for i := 0; i < len(worm.positions); i++ {
+			if i < newLength {
+				newPositions[i] = worm.positions[i]
+			} else {
+				server.grid[worm.positions[i].x][worm.positions[i].y].worm = ""
+			}
+		}
+
+		worm.positions = newPositions
 		worm.foodConsumed = 0
 		worm.foodNeeded = newLength * server.levelMultiplier
 
@@ -49,7 +61,7 @@ func (server *Server) reduce(worm *worm, amount int) {
 	}
 }
 
-func (server *Server) extend(worm *worm) {
+func (server *Server) extend(worm *worm, amount int) {
 	server.mu.RLock()
 
 	oldWormLength := len(worm.positions)
@@ -57,7 +69,21 @@ func (server *Server) extend(worm *worm) {
 
 	server.mu.RUnlock()
 
-	newWormPositions := append(worm.positions, tailPos)
+	var newWormPositions []pos
+
+	if amount == 1 {
+		newWormPositions = append(worm.positions, tailPos)
+	} else {
+		newWormPositions = make([]pos, oldWormLength+amount)
+
+		for i := range newWormPositions {
+			if i < oldWormLength {
+				newWormPositions[i] = worm.positions[i]
+			} else {
+				newWormPositions[i] = tailPos
+			}
+		}
+	}
 
 	server.mu.Lock()
 
@@ -78,16 +104,15 @@ func (server *Server) consumeFood(id string, headPosCell *cellInfo, headPos *pos
 	server.mu.Unlock()
 
 	if worm.foodConsumed == worm.foodNeeded {
-		server.extend(worm)
+		server.extend(worm, 1)
 	}
 
 	server.broadcast([]byte(eventConsumeFood + "\n" + id + "," + positionToString(headPos) + "|" + strconv.Itoa(worm.foodConsumed) + "/" + strconv.Itoa(worm.foodNeeded)))
 }
 
-func (server *Server) move(ws *websocket.Conn, dir string) {
+func (server *Server) move(id string, dir string, collisions *map[string]*collisionInfo) {
 	server.mu.RLock()
 
-	id := server.wormConns[ws]
 	worm := server.worms[id]
 
 	positions := worm.positions
@@ -107,12 +132,54 @@ func (server *Server) move(ws *websocket.Conn, dir string) {
 		headPos.x++
 	}
 
-	if headPos.x == -1 || headPos.x == server.gridWidth || headPos.y == -1 || headPos.y == server.gridHeight {
-		oldFoodConsumed, oldFoodNeeded := worm.foodConsumed, worm.foodNeeded
-		server.reduce(worm, len(positions)/2)
+	outOfBounds := headPos.x == -1 || headPos.x == server.gridWidth || headPos.y == -1 || headPos.y == server.gridHeight
 
-		if worm.foodConsumed != oldFoodConsumed || worm.foodNeeded != oldFoodNeeded {
-			ws.Write([]byte(eventCollide + "\n" + strconv.Itoa(worm.foodConsumed) + "/" + strconv.Itoa(worm.foodNeeded)))
+	collison, existingCollision := (*collisions)[id]
+
+	if outOfBounds {
+		if existingCollision {
+			collison.loss = true
+		} else {
+			(*collisions)[id] = &collisionInfo{
+				true,
+				0,
+			}
+		}
+
+		return
+	}
+
+	enemyWormId := server.grid[headPos.x][headPos.y].worm
+
+	if enemyWormId != id && enemyWormId != "" {
+		server.mu.RLock()
+		enemyWorm := server.worms[enemyWormId]
+		enemyWormHeadPos := enemyWorm.positions[0]
+		server.mu.RUnlock()
+
+		if len(worm.positions) == 1 || (enemyWormHeadPos.x == headPos.x && enemyWormHeadPos.y == headPos.y) {
+			return
+		}
+
+		if existingCollision {
+			collison.loss = true
+		} else {
+			(*collisions)[id] = &collisionInfo{
+				true,
+				0,
+			}
+		}
+
+		dmg := len(positions) / 2
+		enemyCollison, existingEnemyCollision := (*collisions)[enemyWormId]
+
+		if existingEnemyCollision {
+			enemyCollison.gains += dmg
+		} else {
+			(*collisions)[enemyWormId] = &collisionInfo{
+				false,
+				dmg,
+			}
 		}
 
 		return
@@ -180,10 +247,10 @@ func (server *Server) newWorm() string {
 
 	wormPos := []pos{{x, y}, {x - 1, y}, {x - 2, y}}
 	server.worms[id] = &worm{
-		wormPos,
-		"L",
-		0,
-		3 * server.levelMultiplier,
+		positions:    wormPos,
+		direction:    "R",
+		foodConsumed: 0,
+		foodNeeded:   3 * server.levelMultiplier,
 	}
 
 	return id

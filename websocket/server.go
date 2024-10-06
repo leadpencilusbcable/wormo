@@ -27,6 +27,11 @@ type Server struct {
 	mu              sync.RWMutex
 }
 
+type collisionInfo struct {
+	loss  bool
+	gains int
+}
+
 func (server *Server) broadcast(msg []byte) {
 	server.mu.RLock()
 
@@ -125,6 +130,8 @@ func (server *Server) moveWorms() {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		collisions := map[string]*collisionInfo{}
+
 		server.mu.RLock()
 		unlocked := false
 
@@ -134,12 +141,24 @@ func (server *Server) moveWorms() {
 
 			msg := eventMove + "\n"
 
+			for id, worm := range server.worms {
+				server.move(id, worm.direction, &collisions)
+			}
+
 			wormsMsg := ""
 
-			for ws, id := range server.wormConns {
-				worm := server.worms[id]
+			for id, worm := range server.worms {
+				collison, didCollide := collisions[id]
 
-				server.move(ws, worm.direction)
+				if didCollide {
+					if collison.loss {
+						server.reduce(worm, len(worm.positions)/2)
+					}
+					if collison.gains > 0 {
+						server.extend(worm, collison.gains)
+					}
+				}
+
 				wormsMsg += id + "," + positionsToString(worm.positions) + "\n"
 			}
 
