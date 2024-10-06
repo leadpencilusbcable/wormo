@@ -35,7 +35,7 @@ func (server *Server) handleInit(initiator *websocket.Conn, initiatorId string) 
 
 	for id, worm := range server.worms {
 		if id != initiatorId {
-			existingWormsMsg += id + "," + positionsToString(worm.positions)
+			existingWormsMsg += id + "," + positionsToString(worm.positions) + "\n"
 		}
 	}
 

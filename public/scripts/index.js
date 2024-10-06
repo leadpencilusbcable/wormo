@@ -102,11 +102,11 @@ class Worm {
     updatePositions(positions) {
         this.clearPositions();
 
-        addColourToCell(positions[0], this.headColour);
-
         for(let i = 1; i < positions.length; i++){
             addColourToCell(positions[i], this.colour);
         }
+
+        addColourToCell(positions[0], this.headColour);
 
         this.positions = positions;
     }
