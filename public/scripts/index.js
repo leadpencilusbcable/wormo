@@ -164,6 +164,10 @@ const handleWsMsg = ({ data }) => {
             for(const unparsedWorm of msg.split("\n")){
                 const [id, positions] = parseNewEvent(unparsedWorm);
 
+                if(id === playerId && positions.length !== worms.get(playerId).positions.length){
+                    updateFoodCounter(0, positions.length * LEVEL_MULTIPLIER)
+                }
+
                 worms.get(id).updatePositions(positions);
             }
 
@@ -175,12 +179,6 @@ const handleWsMsg = ({ data }) => {
             for(const foodPosition of foodPositions){
                 addFoodToCell(foodPosition, generateRandomColour());
             }
-
-            break;
-        }
-        case wsEvents.COLLIDE: {
-            const [consumed, needed] = msg.split('/');
-            updateFoodCounter(consumed, needed);
 
             break;
         }

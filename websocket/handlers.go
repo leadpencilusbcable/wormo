@@ -17,7 +17,6 @@ const (
 	eventExtend          = "EXTEND"
 	eventChangeDirection = "CHANGEDIR"
 	eventDisconnect      = "DISCONNECT"
-	eventCollide         = "COLLIDE"
 )
 
 func (server *Server) handleChangeDir(initiatorId string, dir string) {
