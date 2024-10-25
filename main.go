@@ -26,6 +26,7 @@ func main() {
 			"./public/pages/game.html",
 			"./public/pages/error.html",
 			"./public/pages/pagenotfound.html",
+			"public/images",
 			"public/styles",
 			"public/scripts",
 		)

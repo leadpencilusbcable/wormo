@@ -5,6 +5,24 @@ const progressBar = document.getElementById("progress-inner");
 const loading = document.getElementById("ui-loading");
 const progressBox = document.getElementById("ui-progress");
 
+let bombImageSrc;
+
+(async () => {
+    const res = await fetch(document.baseURI + "/images/bomb.png");
+
+    if(res.status === 200){
+        bombImageSrc = URL.createObjectURL(await res.blob());
+
+        if(bombs){
+            for(const [_, bomb] of bombs){
+                bomb.bombImage.src = bombImageSrc;
+            }
+        }
+    } else{
+        console.error("Unable to fetch bomb image");
+    }
+})();
+
 const TOTAL_SPACES = GRID_ROWS * GRID_ROWS;
 
 const generateRandomColour = () => '#' + (Math.random().toString(16) + "000000").substring(2,8);
@@ -23,6 +41,22 @@ const removeColourFromCell = ({x, y}) => {
 
     const cell = grid.children.item(index);
     cell.style.removeProperty("background-color");
+};
+
+const addBorderColourToCell = ({x, y}, colour) => {
+    const index = x + y * GRID_COLS;
+    console.debug(`Adding border colour ${colour} to ${x},${y}`)
+
+    const cell = grid.children.item(index);
+    cell.style["border-color"] = colour;
+};
+
+const removeBorderColourFromCell = ({x, y}) => {
+    const index = x + y * GRID_COLS;
+    console.debug(`Removing border colour from ${x},${y}`)
+
+    const cell = grid.children.item(index);
+    cell.style.removeProperty("border-color");
 };
 
 const addFoodToCell = ({x, y}, colour) => {
@@ -78,6 +112,12 @@ const parseNewEvent = (str) => {
     return [id, positions];
 };
 
+const parseSpawnBombEvent = (str) => {
+    const [id, timeToDetonateSeconds, unparsedBombPosition, unparsedPositions] = str.split('|');
+
+    return [id, parseInt(timeToDetonateSeconds), parsePosition(unparsedBombPosition), parsePositions(unparsedPositions)];
+};
+
 class Worm {
     /**
         @positions {x: number, y: number}[] head->tail
@@ -118,7 +158,60 @@ class Worm {
     }
 }
 
+class Bomb {
+    /**
+        @param {{x: number, y: number}} bombPosition The position of the bomb
+        @param {{x: number, y: number}[]} positions The surrounding positions in the bomb's range
+        @param {number} timeToDetonateSeconds How long for bomb to detonate
+    **/
+    constructor(bombPosition, positions, timeToDetonateSeconds) {
+        this.bombPosition = bombPosition;
+        this.positions = positions;
+        this.timeToDetonateSeconds = timeToDetonateSeconds;
+
+        const bombOverlay = document.createElement("div");
+        bombOverlay.className = "bomb-overlay";
+        bombOverlay.style.gridColumn = (positions[0].x + 1) + '/' + (positions[positions.length - 1].x + 2);
+        bombOverlay.style.gridRow = (positions[0].y + 1) + '/' + (positions[positions.length - 1].y + 2);
+
+        const bombTimer = document.createElement("span");
+        bombTimer.className = "bomb-timer";
+        bombTimer.innerHTML = timeToDetonateSeconds;
+
+        bombOverlay.appendChild(bombTimer);
+
+        grid.appendChild(bombOverlay);
+        this.bombOverlay = bombOverlay;
+
+        const bombImage = document.createElement("img");
+        bombImage.className = "bomb-image";
+        bombImage.src = bombImageSrc;
+        bombImage.style.gridColumn = bombPosition.x + 1;
+        bombImage.style.gridRow = bombPosition.y + 1;
+
+        grid.appendChild(bombImage);
+        this.bombImage = bombImage;
+
+        this.intervalId = setInterval(this.decrement.bind(this), 1000);
+    }
+
+    decrement() {
+        this.timeToDetonateSeconds--;
+        this.bombOverlay.children[0].innerHTML = this.timeToDetonateSeconds;
+
+        if(this.timeToDetonateSeconds <= 0){
+            clearInterval(this.intervalId);
+        }
+    }
+
+    detonate() {
+        this.bombOverlay.remove();
+        this.bombImage.remove();
+    }
+}
+
 let worms = new Map();
+let bombs = new Map();
 let ws;
 let isInitialised = false;
 
@@ -126,6 +219,8 @@ const wsEvents = {
     MOVE: "MOVE",
     SPAWNFOOD: "SPAWNFOOD",
     CONSUMEFOOD: "CONSUMEFOOD",
+    SPAWNBOMB: "SPAWNBOMB",
+    DETONATEBOMB: "DETBOMB",
     INIT: "INIT",
     CHANGEDIR: "CHANGEDIR",
     NEW: "NEW",
@@ -182,6 +277,30 @@ const handleWsMsg = ({ data }) => {
 
             break;
         }
+        case wsEvents.SPAWNBOMB: {
+            const [id, timeToDetonateSeconds, bombPosition, positions] = parseSpawnBombEvent(msg);
+
+            const bomb = new Bomb(bombPosition, positions, timeToDetonateSeconds);
+            bombs.set(id, bomb);
+
+            break;
+        }
+        case wsEvents.DETONATEBOMB: {
+            const [bombId, unparsedWorms] = msg.split('|');
+
+            bombs.get(bombId).detonate();
+            bombs.delete(bombId);
+
+            if(unparsedWorms !== undefined){
+                for(const unparsedWorm of unparsedWorms.split("\n")){
+                    const [id, positions] = parseNewEvent(unparsedWorm);
+
+                    worms.get(id).updatePositions(positions);
+                }
+            }
+
+            break;
+        }
         case wsEvents.DISCONNECT: {
             worms.get(msg).clearPositions();
             worms.delete(msg);
@@ -202,7 +321,7 @@ const handleWsMsg = ({ data }) => {
             break;
         }
         case wsEvents.INIT: {
-            let [playerWormMsg, enemyWormsMsg, foodMsg] = msg.split('|');
+            let [playerWormMsg, enemyWormsMsg, foodMsg, bombMsg] = msg.split('|');
 
             let [id, positions] = parseNewEvent(playerWormMsg);
 
@@ -240,6 +359,28 @@ const handleWsMsg = ({ data }) => {
                 }
             }
 
+            if(bombMsg !== ""){
+                const unparsedBombs = bombMsg.split("\n");
+
+                for(const unparsedBomb of unparsedBombs){
+                    const bombData = unparsedBomb.split(',');
+
+                    const id = bombData[0];
+                    const timeToDetonateSeconds = bombData[1];
+                    const unparsedBombPosition = bombData[2];
+                    const unparsedPositions = bombData.slice(3);
+
+                    const positions = [];
+
+                    for(const unparsedPosition of unparsedPositions){
+                        positions.push(parsePosition(unparsedPosition));
+                    }
+
+                    const bomb = new Bomb(parsePosition(unparsedBombPosition), positions, parseInt(timeToDetonateSeconds));
+                    bombs.set(id, bomb);
+                }
+            }
+
             loading.style.visibility = "hidden";
             progressBox.style.visibility = "visible";
 
@@ -251,6 +392,15 @@ const handleWsMsg = ({ data }) => {
 }
 
 const init = () => {
+    console.log("%cWelcome to\n%cW%cO%cR%cM%cO",
+        "font-size: 20px",
+        "font-size: 50px; color: " + generateRandomColour(),
+        "font-size: 50px; color: " + generateRandomColour(),
+        "font-size: 50px; color: " + generateRandomColour(),
+        "font-size: 50px; color: " + generateRandomColour(),
+        "font-size: 50px; color: " + generateRandomColour(),
+    );
+
     ws = new WebSocket(document.URL.replace("http", "ws").replace("8000", "8001"));
     ws.onmessage = handleWsMsg;
     ws.onopen = () => {

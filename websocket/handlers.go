@@ -3,6 +3,7 @@ package websocket
 import (
 	"io"
 	"log"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/websocket"
@@ -14,6 +15,8 @@ const (
 	eventMove            = "MOVE"
 	eventConsumeFood     = "CONSUMEFOOD"
 	eventSpawnFood       = "SPAWNFOOD"
+	eventSpawnBomb       = "SPAWNBOMB"
+	eventDetonateBomb    = "DETBOMB"
 	eventExtend          = "EXTEND"
 	eventChangeDirection = "CHANGEDIR"
 	eventDisconnect      = "DISCONNECT"
@@ -58,6 +61,22 @@ func (server *Server) handleInit(initiator *websocket.Conn, initiatorId string) 
 
 	if foodPositionsMsg != "" {
 		msg += "|" + foodPositionsMsg[:len(foodPositionsMsg)-1]
+	} else {
+		msg += "|"
+	}
+
+	bombPositionsMsg := ""
+
+	server.mu.RLock()
+
+	for id, bomb := range server.bombs {
+		bombPositionsMsg += id + "," + strconv.FormatInt(int64(bomb.timeToDetonation), 10) + "," + positionToString(&bomb.bombPosition) + "," + positionsToString(bomb.positions) + "\n"
+	}
+
+	server.mu.RUnlock()
+
+	if bombPositionsMsg != "" {
+		msg += "|" + bombPositionsMsg[:len(bombPositionsMsg)-1]
 	} else {
 		msg += "|"
 	}

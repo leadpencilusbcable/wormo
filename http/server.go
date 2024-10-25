@@ -11,6 +11,7 @@ type Server struct {
 	gameFile     []byte
 	errorFile    []byte
 	notFoundFile []byte
+	imagesPath   string
 	stylesPath   string
 	scriptsPath  string
 	Server       *http.Server
@@ -18,8 +19,17 @@ type Server struct {
 
 func createGameFile(gridWidth uint8, gridHeight uint8, levelMultiplier uint8, gameFilePath string) error {
 	template, error := template.New("game.html").Funcs(template.FuncMap{
-		"loop": func(n int) []struct{} {
-			return make([]struct{}, n)
+		"iterate": func(count int) []int {
+			items := make([]int, count)
+
+			for i := 0; i < count; i++ {
+				items[i] = i
+			}
+
+			return items
+		},
+		"increment": func(i int) int {
+			return i + 1
 		},
 	}).ParseFiles("./templates/game.html")
 
@@ -62,6 +72,7 @@ func NewServer(
 	gameFilePath string,
 	errorFilePath string,
 	notFoundFilePath string,
+	imagesPath string,
 	stylesPath string,
 	scriptsPath string,
 ) (*Server, error) {
@@ -97,6 +108,7 @@ func NewServer(
 		gameFile,
 		errorFile,
 		notFoundFile,
+		imagesPath,
 		stylesPath,
 		scriptsPath,
 		httpServer,
@@ -106,6 +118,7 @@ func NewServer(
 	httpMux.HandleFunc("/", server.handle)
 	httpMux.HandleFunc("/scripts/", server.handleScripts)
 	httpMux.HandleFunc("/styles/", server.handleStyles)
+	httpMux.HandleFunc("/images/", server.handleImages)
 
 	httpServer.Handler = httpMux
 

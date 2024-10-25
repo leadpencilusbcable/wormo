@@ -5,8 +5,8 @@
         <script src="../scripts/index.js" defer></script>
         <style>
             .grid-container {
-                grid-template-columns: {{range loop .X}}1fr {{end}};
-                grid-template-rows: {{range loop .Y}}1fr {{end}};
+                grid-template-columns: repeat({{.X}}, 1fr);
+                grid-template-rows: repeat({{.Y}}, 1fr);
             }
         </style>
         <script>
@@ -34,8 +34,10 @@
             </div>
         </div>
         <div id="wormo-grid" class="grid-container">
-            {{range loop .TotalSize}}
-                <div class="grid-item"></div>
+            {{range $y := iterate .Y}}
+                {{range $x := iterate $.X}}
+                    <div class="grid-item" style="grid-column: {{increment $x}} / {{increment $x}}; grid-row: {{increment $y}} / {{increment $y}}";></div>
+                {{end}}
             {{end}}
         </div>
     </body>

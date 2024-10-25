@@ -57,6 +57,8 @@ func serveDirectory(dir string, w *http.ResponseWriter, r *http.Request, notFoun
 		mimeType = "text/javascript"
 	case "css":
 		mimeType = "text/css"
+	case "png":
+		mimeType = "image/png"
 	default:
 		mimeType = "any"
 	}
@@ -71,6 +73,10 @@ func (server *Server) handleStyles(w http.ResponseWriter, r *http.Request) {
 
 func (server *Server) handleScripts(w http.ResponseWriter, r *http.Request) {
 	serveDirectory(server.scriptsPath, &w, r, &server.notFoundFile)
+}
+
+func (server *Server) handleImages(w http.ResponseWriter, r *http.Request) {
+	serveDirectory(server.imagesPath, &w, r, &server.notFoundFile)
 }
 
 func (server *Server) handle(w http.ResponseWriter, r *http.Request) {

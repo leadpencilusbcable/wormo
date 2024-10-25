@@ -239,8 +239,8 @@ func positionsToString(positions []pos) string {
 }
 
 func (server *Server) newWorm() string {
-	atomic.AddUint64(&server.idCounter, 1)
-	id := strconv.FormatUint(server.idCounter, 10)
+	atomic.AddUint64(&server.wormIdCounter, 1)
+	id := strconv.FormatUint(server.wormIdCounter, 10)
 
 	x := rand.Intn(server.gridWidth-10) + 5
 	y := rand.Intn(server.gridHeight-10) + 5

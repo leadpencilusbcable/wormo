@@ -7,15 +7,15 @@ INIT:
     -Server then replies with message detailing positions of foods and other worms on server. Positions in the format x:y,x:y,.....
 
         INIT
-        ID,NEWWORMPOSITIONS|EXISTINGWORMPOSITIONS(NEWLINE FOR EACH WORM, EACH WORM STARTS WITH THEIR ID FOLLOWED BY COMMA)|FOODPOSITIONS
+        ID,NEWWORMPOSITIONS|EXISTINGWORMPOSITIONS(NEWLINE FOR EACH WORM, EACH WORM STARTS WITH THEIR ID FOLLOWED BY COMMA)|FOODPOSITIONS|BOMBID,DETONATIONTIMESECONDS,BOMBCENTERPOSITION,ALLBOMBPOSITIONS
 
     eg.
 
         INIT
         11,1:1,1:2,1:3|1,5:5,5:6,5:7,5:8
         3,8:1,8:2,9:2
-        4,7:9,7:10,7:11|
-        1:1,6:3,2:2,12:12
+        4,7:9,7:10,7:11|1:1,6:3,2:2,12:12|1,3,32:2,31:1,31:2,31:3,32:1,32:2,32:3,33:1,33:2,33:3
+        2,8,6:15,5:14,5:15,5:16,6:14,6:15,6:16,7:14,7:15,7:16
 
     -Server will then broadcast NEW message to other worms
 
@@ -92,3 +92,19 @@ COLLIDE:
 
         COLLIDE
         0/3
+
+SPAWNBOMB:
+    -Broadcasted when new bomb spawned
+
+        SPAWNBOMB
+        BOMBID|DETONATIONTIMESECONDS|BOMBCENTERPOSITION|ALLBOMBPOSITIONS
+
+DETBOMB:
+    -Broadcasted when existing bomb detonates
+
+        IF NO WORMS IN RANGE
+            DETBOMB
+            BOMBID
+        ELSE
+            DETBOMB
+            BOMBID|WORMID,WORMPOSITIONS...
