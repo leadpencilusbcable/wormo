@@ -401,7 +401,10 @@ const init = () => {
         "font-size: 50px; color: " + generateRandomColour(),
     );
 
-    ws = new WebSocket(document.URL.replace("http", "ws").replace("8000", "8001"));
+    const wsUrl = new URL(document.URL);
+    wsUrl.port = WS_PORT;
+
+    ws = new WebSocket(wsUrl);
     ws.onmessage = handleWsMsg;
     ws.onopen = () => {
         ws.send("INIT");
